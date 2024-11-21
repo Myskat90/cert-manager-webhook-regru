@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -11,18 +10,19 @@ import (
 )
 
 const (
-	defaultBaseURL    = "https://api.reg.ru/api/regru2"
-	defaultHTTPClient = 10 * time.Second
+	defaultBaseURL = "https://api.reg.ru/api/regru2"
+	httpTimeout    = 10 * time.Second
 )
 
-// RegruClient предоставляет методы для взаимодействия с API Reg.ru.
+var client = &http.Client{Timeout: httpTimeout}
+
 type RegruClient struct {
 	username string
 	password string
 	zone     string
 }
 
-// NewRegruClient создает новый экземпляр клиента для API Reg.ru с использованием логина и пароля.
+// NewRegruClient создает новый экземпляр клиента для работы с API
 func NewRegruClient(username string, password string, zone string) *RegruClient {
 	return &RegruClient{
 		username: username,
@@ -31,107 +31,92 @@ func NewRegruClient(username string, password string, zone string) *RegruClient 
 	}
 }
 
-// getRecords получает записи DNS для указанной зоны.
-func (c *RegruClient) getRecords() error {
-	fmt.Println("getRecords: Запрашиваем записи DNS для зоны:", c.zone)
+// sendRequest отправляет POST-запрос с параметрами и возвращает ответ
+func (c *RegruClient) sendRequest(method string, params map[string]interface{}) ([]byte, error) {
+	url := defaultBaseURL + "/" + method
+	params["username"] = c.username
+	params["password"] = c.password
 
-	payload := map[string]string{
-		"domain": c.zone,
-	}
-
-	// Путь для получения записей теперь соответствует документации.
-	response, err := c.makePostRequest("zone/get_resource_records", payload)
+	// Преобразуем параметры в JSON
+	body, err := json.Marshal(params)
 	if err != nil {
-		return fmt.Errorf("ошибка выполнения getRecords: %w", err)
-	}
-	fmt.Println("getRecords: Ответ от API:", response)
-	return nil
-}
-
-// createTXT добавляет TXT-запись в DNS-зону.
-func (c *RegruClient) createTXT(domain, value string) error {
-	fmt.Println("createTXT: Добавляем TXT-запись для домена:", domain)
-
-	payload := map[string]string{
-		"domain":    c.zone,
-		"subdomain": domain,
-		"txt":       value,
+		return nil, fmt.Errorf("не удалось преобразовать данные в JSON: %v", err)
 	}
 
-	// Путь для добавления TXT записи теперь соответствует документации.
-	response, err := c.makePostRequest("zone/add_txt", payload)
-	if err != nil {
-		return fmt.Errorf("ошибка выполнения createTXT: %w", err)
-	}
-	fmt.Println("createTXT: Ответ от API:", response)
-	return nil
-}
-
-// deleteTXT удаляет TXT-запись из DNS-зоны.
-func (c *RegruClient) deleteTXT(domain, value string) error {
-	fmt.Println("deleteTXT: Удаляем TXT-запись для домена:", domain)
-
-	payload := map[string]string{
-		"domain":    c.zone,
-		"subdomain": domain,
-		"txt":       value,
-	}
-
-	// Путь для удаления TXT записи теперь соответствует документации.
-	response, err := c.makePostRequest("zone/remove_record", payload)
-	if err != nil {
-		return fmt.Errorf("ошибка выполнения deleteTXT: %w", err)
-	}
-	fmt.Println("deleteTXT: Ответ от API:", response)
-	return nil
-}
-
-// makePostRequest выполняет POST-запрос к API Reg.ru с логином и паролем в заголовке для авторизации.
-func (c *RegruClient) makePostRequest(command string, payload map[string]string) (map[string]interface{}, error) {
-	payload["input_format"] = "json"
-	payload["output_format"] = "json"
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("ошибка сериализации JSON: %w", err)
-	}
-
-	url := fmt.Sprintf("%s/%s", defaultBaseURL, command)
-
+	// Создаем POST-запрос
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	if err != nil {
-		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
+		return nil, fmt.Errorf("не удалось создать запрос: %v", err)
 	}
 
-	// Добавление логина и пароля в заголовок Authorization (Basic Auth)
-	auth := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", c.username, c.password)))
-	req.Header.Set("Authorization", "Basic "+auth)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{Timeout: defaultHTTPClient}
+	// Выполняем запрос
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка выполнения запроса: %w", err)
+		return nil, fmt.Errorf("не удалось выполнить запрос: %v", err)
 	}
 	defer resp.Body.Close()
 
+	// Читаем ответ
 	respBody, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка чтения ответа: %w", err)
+		return nil, fmt.Errorf("не удалось прочитать ответ: %v", err)
 	}
 
-	// Логируем полный ответ от API
-	fmt.Println("Ответ от API:", string(respBody))
+	// Логируем ответ API
+	fmt.Println("Ответ API:", string(respBody))
 
-	var result map[string]interface{}
-	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("ошибка десериализации JSON: %w", err)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ошибка API: %s", string(respBody))
 	}
 
-	// Проверяем результат выполнения API-запроса
-	if result["result"] != "success" {
-		return nil, fmt.Errorf("API вернул ошибку: %v", result["error_text"])
+	return respBody, nil
+}
+
+// CreateTXT создает TXT запись для домена
+func (c *RegruClient) createTXT(domain string, value string) error {
+	params := map[string]interface{}{
+		"zone":   c.zone,
+		"domain": domain,
+		"txt":    value,
 	}
 
-	return result, nil
+	_, err := c.sendRequest("zone/add_txt", params)
+	if err != nil {
+		return fmt.Errorf("createTXT: API вернуло ошибку: %v", err)
+	}
+
+	return nil
+}
+
+// DeleteTXT удаляет TXT запись для домена
+func (c *RegruClient) deleteTXT(domain string, value string) error {
+	params := map[string]interface{}{
+		"zone":   c.zone,
+		"domain": domain,
+		"txt":    value,
+	}
+
+	_, err := c.sendRequest("zone/remove_record", params)
+	if err != nil {
+		return fmt.Errorf("deleteTXT: API вернуло ошибку: %v", err)
+	}
+
+	return nil
+}
+
+// getRecords получает TXT записи для зоны
+func (c *RegruClient) getRecords() ([]byte, error) {
+	params := map[string]interface{}{
+		"zone": c.zone,
+	}
+
+	// Запрашиваем записи для зоны
+	respBody, err := c.sendRequest("zone/get_resource_records", params)
+	if err != nil {
+		return nil, fmt.Errorf("getRecords: ошибка при получении записей: %v", err)
+	}
+
+	return respBody, nil
 }
