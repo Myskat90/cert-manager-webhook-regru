@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -21,7 +22,7 @@ type RegruClient struct {
 	zone     string
 }
 
-// NewRegruClient создает новый экземпляр клиента для API Reg.ru.
+// NewRegruClient создает новый экземпляр клиента для API Reg.ru с использованием логина и пароля.
 func NewRegruClient(username string, password string, zone string) *RegruClient {
 	return &RegruClient{
 		username: username,
@@ -34,16 +35,11 @@ func NewRegruClient(username string, password string, zone string) *RegruClient 
 func (c *RegruClient) getRecords() error {
 	fmt.Println("getRecords: Запрашиваем записи DNS для зоны:", c.zone)
 
-	payload := map[string]interface{}{
-		"auth": map[string]string{
-			"username": c.username,
-			"password": c.password,
-		},
-		"zone":    c.zone,
-		"command": "get_records",
+	payload := map[string]string{
+		"domain": c.zone,
 	}
 
-	response, err := c.makePostRequest(payload)
+	response, err := c.makePostRequest("get_records", payload)
 	if err != nil {
 		return fmt.Errorf("ошибка выполнения getRecords: %w", err)
 	}
@@ -55,21 +51,13 @@ func (c *RegruClient) getRecords() error {
 func (c *RegruClient) createTXT(domain, value string) error {
 	fmt.Println("createTXT: Добавляем TXT-запись для домена:", domain)
 
-	payload := map[string]interface{}{
-		"auth": map[string]string{
-			"username": c.username,
-			"password": c.password,
-		},
-		"zone":    c.zone,
-		"command": "add_record",
-		"record": map[string]interface{}{
-			"type":  "TXT",
-			"name":  domain,
-			"value": value,
-		},
+	payload := map[string]string{
+		"domain":    c.zone,
+		"subdomain": domain,
+		"txt":       value,
 	}
 
-	response, err := c.makePostRequest(payload)
+	response, err := c.makePostRequest("add_txt", payload)
 	if err != nil {
 		return fmt.Errorf("ошибка выполнения createTXT: %w", err)
 	}
@@ -81,21 +69,13 @@ func (c *RegruClient) createTXT(domain, value string) error {
 func (c *RegruClient) deleteTXT(domain, value string) error {
 	fmt.Println("deleteTXT: Удаляем TXT-запись для домена:", domain)
 
-	payload := map[string]interface{}{
-		"auth": map[string]string{
-			"username": c.username,
-			"password": c.password,
-		},
-		"zone":    c.zone,
-		"command": "del_record",
-		"record": map[string]interface{}{
-			"type":  "TXT",
-			"name":  domain,
-			"value": value,
-		},
+	payload := map[string]string{
+		"domain":    c.zone,
+		"subdomain": domain,
+		"txt":       value,
 	}
 
-	response, err := c.makePostRequest(payload)
+	response, err := c.makePostRequest("remove_subdomain", payload)
 	if err != nil {
 		return fmt.Errorf("ошибка выполнения deleteTXT: %w", err)
 	}
@@ -103,20 +83,27 @@ func (c *RegruClient) deleteTXT(domain, value string) error {
 	return nil
 }
 
-// makePostRequest выполняет POST-запрос к API Reg.ru.
-func (c *RegruClient) makePostRequest(payload map[string]interface{}) (map[string]interface{}, error) {
+// makePostRequest выполняет POST-запрос к API Reg.ru с логином и паролем в заголовке для авторизации.
+func (c *RegruClient) makePostRequest(command string, payload map[string]string) (map[string]interface{}, error) {
+	payload["input_format"] = "json"
+	payload["output_format"] = "json"
+
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка сериализации JSON: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", defaultBaseURL, bytes.NewBuffer(body))
+	url := fmt.Sprintf("%s/%s", defaultBaseURL, command)
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
 	if err != nil {
 		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
 	}
 
+	// Добавление логина и пароля в заголовок Authorization (Basic Auth)
+	auth := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("%s:%s", c.username, c.password)))
+	req.Header.Set("Authorization", "Basic "+auth)
 	req.Header.Set("Content-Type", "application/json")
-	req.SetBasicAuth(c.username, c.password)
 
 	client := &http.Client{Timeout: defaultHTTPClient}
 	resp, err := client.Do(req)
@@ -129,6 +116,9 @@ func (c *RegruClient) makePostRequest(payload map[string]interface{}) (map[strin
 	if err != nil {
 		return nil, fmt.Errorf("ошибка чтения ответа: %w", err)
 	}
+
+	// Логируем полный ответ от API
+	fmt.Println("Ответ от API:", string(respBody))
 
 	var result map[string]interface{}
 	if err := json.Unmarshal(respBody, &result); err != nil {
