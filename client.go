@@ -39,7 +39,8 @@ func (c *RegruClient) getRecords() error {
 		"domain": c.zone,
 	}
 
-	response, err := c.makePostRequest("get_records", payload)
+	// Путь для получения записей теперь соответствует документации.
+	response, err := c.makePostRequest("zone/get_resource_records", payload)
 	if err != nil {
 		return fmt.Errorf("ошибка выполнения getRecords: %w", err)
 	}
@@ -57,7 +58,8 @@ func (c *RegruClient) createTXT(domain, value string) error {
 		"txt":       value,
 	}
 
-	response, err := c.makePostRequest("add_txt", payload)
+	// Путь для добавления TXT записи теперь соответствует документации.
+	response, err := c.makePostRequest("zone/add_txt", payload)
 	if err != nil {
 		return fmt.Errorf("ошибка выполнения createTXT: %w", err)
 	}
@@ -75,7 +77,8 @@ func (c *RegruClient) deleteTXT(domain, value string) error {
 		"txt":       value,
 	}
 
-	response, err := c.makePostRequest("remove_subdomain", payload)
+	// Путь для удаления TXT записи теперь соответствует документации.
+	response, err := c.makePostRequest("zone/remove_record", payload)
 	if err != nil {
 		return fmt.Errorf("ошибка выполнения deleteTXT: %w", err)
 	}
