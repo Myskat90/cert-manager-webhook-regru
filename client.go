@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -15,19 +14,15 @@ const (
 	defaultHTTPClient = 10 * time.Second
 )
 
-var (
-	errNoAuth = errors.New("authentication failed: no auth")
-)
-
-// RegruClient представляет клиента для работы с API Reg.ru
+// RegruClient предоставляет методы для взаимодействия с API Reg.ru.
 type RegruClient struct {
 	username string
 	password string
 	zone     string
 }
 
-// NewRegruClient создает новый клиент для работы с API Reg.ru
-func NewRegruClient(username, password, zone string) *RegruClient {
+// NewRegruClient создает новый экземпляр клиента для API Reg.ru.
+func NewRegruClient(username string, password string, zone string) *RegruClient {
 	return &RegruClient{
 		username: username,
 		password: password,
@@ -35,115 +30,112 @@ func NewRegruClient(username, password, zone string) *RegruClient {
 	}
 }
 
-// GetRecords получает список записей для указанной зоны
-func (c *RegruClient) getRecords() ([]map[string]interface{}, error) {
-	fmt.Println("getRecords: запрашиваем записи для зоны:", c.zone)
-	endpoint := fmt.Sprintf("%s/zone/get_resource_records", defaultBaseURL)
+// getRecords получает записи DNS для указанной зоны.
+func (c *RegruClient) getRecords() error {
+	fmt.Println("getRecords: Запрашиваем записи DNS для зоны:", c.zone)
+
 	payload := map[string]interface{}{
-		"username": c.username,
-		"password": c.password,
-		"dname":    c.zone,
+		"auth": map[string]string{
+			"username": c.username,
+			"password": c.password,
+		},
+		"zone":    c.zone,
+		"command": "get_records",
 	}
 
-	response, err := c.makePostRequest(endpoint, payload)
+	response, err := c.makePostRequest(payload)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("ошибка выполнения getRecords: %w", err)
 	}
-
-	// Логирование ответа от API
 	fmt.Println("getRecords: Ответ от API:", response)
-
-	records, ok := response["answer"].([]interface{})
-	if !ok {
-		return nil, fmt.Errorf("поле 'answer' отсутствует в ответе")
-	}
-
-	var result []map[string]interface{}
-	for _, record := range records {
-		if r, ok := record.(map[string]interface{}); ok {
-			result = append(result, r)
-		}
-	}
-
-	return result, nil
+	return nil
 }
 
-// createTXT создает TXT-запись в указанной зоне
+// createTXT добавляет TXT-запись в DNS-зону.
 func (c *RegruClient) createTXT(domain, value string) error {
-	fmt.Println("createTXT: создаем TXT-запись для зоны:", c.zone, "домен:", domain, "значение:", value)
-	endpoint := fmt.Sprintf("%s/zone/add_txt", defaultBaseURL)
+	fmt.Println("createTXT: Добавляем TXT-запись для домена:", domain)
+
 	payload := map[string]interface{}{
-		"username": c.username,
-		"password": c.password,
-		"dname":    c.zone,
-		"name":     domain,
-		"text":     value,
+		"auth": map[string]string{
+			"username": c.username,
+			"password": c.password,
+		},
+		"zone":    c.zone,
+		"command": "add_record",
+		"record": map[string]interface{}{
+			"type":  "TXT",
+			"name":  domain,
+			"value": value,
+		},
 	}
 
-	_, err := c.makePostRequest(endpoint, payload)
-	return err
+	response, err := c.makePostRequest(payload)
+	if err != nil {
+		return fmt.Errorf("ошибка выполнения createTXT: %w", err)
+	}
+	fmt.Println("createTXT: Ответ от API:", response)
+	return nil
 }
 
-// deleteTXT удаляет TXT-запись в указанной зоне
+// deleteTXT удаляет TXT-запись из DNS-зоны.
 func (c *RegruClient) deleteTXT(domain, value string) error {
-	fmt.Println("deleteTXT: удаляем TXT-запись для зоны:", c.zone, "домен:", domain, "значение:", value)
-	endpoint := fmt.Sprintf("%s/zone/remove_record", defaultBaseURL)
+	fmt.Println("deleteTXT: Удаляем TXT-запись для домена:", domain)
+
 	payload := map[string]interface{}{
-		"username": c.username,
-		"password": c.password,
-		"dname":    c.zone,
-		"name":     domain,
-		"text":     value,
-		"type":     "TXT",
+		"auth": map[string]string{
+			"username": c.username,
+			"password": c.password,
+		},
+		"zone":    c.zone,
+		"command": "del_record",
+		"record": map[string]interface{}{
+			"type":  "TXT",
+			"name":  domain,
+			"value": value,
+		},
 	}
 
-	_, err := c.makePostRequest(endpoint, payload)
-	return err
+	response, err := c.makePostRequest(payload)
+	if err != nil {
+		return fmt.Errorf("ошибка выполнения deleteTXT: %w", err)
+	}
+	fmt.Println("deleteTXT: Ответ от API:", response)
+	return nil
 }
 
-// makePostRequest выполняет POST-запрос с указанными параметрами
-func (c *RegruClient) makePostRequest(endpoint string, payload map[string]interface{}) (map[string]interface{}, error) {
-	fmt.Println("makePostRequest: выполняем POST-запрос на:", endpoint)
+// makePostRequest выполняет POST-запрос к API Reg.ru.
+func (c *RegruClient) makePostRequest(payload map[string]interface{}) (map[string]interface{}, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка сериализации JSON: %w", err)
 	}
 
-	client := &http.Client{Timeout: defaultHTTPClient}
-	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(body))
+	req, err := http.NewRequest("POST", defaultBaseURL, bytes.NewBuffer(body))
 	if err != nil {
 		return nil, fmt.Errorf("ошибка создания запроса: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
 
+	req.Header.Set("Content-Type", "application/json")
+	req.SetBasicAuth(c.username, c.password)
+
+	client := &http.Client{Timeout: defaultHTTPClient}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("ошибка выполнения запроса: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("неожиданный HTTP статус: %d", resp.StatusCode)
-	}
-
 	respBody, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка чтения тела ответа: %w", err)
+		return nil, fmt.Errorf("ошибка чтения ответа: %w", err)
 	}
 
 	var result map[string]interface{}
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return nil, fmt.Errorf("ошибка обработки JSON: %w", err)
+		return nil, fmt.Errorf("ошибка десериализации JSON: %w", err)
 	}
 
-	// Логирование ответа от API
-	fmt.Println("makePostRequest: Ответ от API:", result)
-
-	// Проверка на успешную аутентификацию
-	if result["result"] == "error" && result["error_code"] == 106 {
-		return nil, errNoAuth
-	}
-
+	// Проверяем результат выполнения API-запроса
 	if result["result"] != "success" {
 		return nil, fmt.Errorf("API вернул ошибку: %v", result["error_text"])
 	}
