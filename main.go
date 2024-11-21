@@ -7,7 +7,6 @@ import (
 
 	"github.com/cert-manager/cert-manager/pkg/acme/webhook/apis/acme/v1alpha1"
 	"github.com/cert-manager/cert-manager/pkg/acme/webhook/cmd"
-	cmmeta "github.com/cert-manager/cert-manager/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/klog/v2"
@@ -35,9 +34,9 @@ type regruDNSProviderSolver struct {
 	client *kubernetes.Clientset
 }
 
-type regruDNSProviderConfig struct {
-	RegruAPIPasswordSecretRef cmmeta.SecretKeySelector `json:"regruPasswordSecretRef"`
-}
+//type regruDNSProviderConfig struct {
+//	RegruAPIPasswordSecretRef cmmeta.SecretKeySelector `json:"regruPasswordSecretRef"`
+//}
 
 func (c *regruDNSProviderSolver) Name() string {
 	return providerName

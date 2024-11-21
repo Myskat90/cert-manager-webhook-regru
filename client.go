@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -12,6 +13,10 @@ import (
 const (
 	defaultBaseURL    = "https://api.reg.ru/api/regru2"
 	defaultHTTPClient = 10 * time.Second
+)
+
+var (
+	errNoAuth = errors.New("authentication failed: no auth")
 )
 
 // RegruClient представляет клиента для работы с API Reg.ru
@@ -44,6 +49,9 @@ func (c *RegruClient) getRecords() ([]map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Логирование ответа от API
+	fmt.Println("getRecords: Ответ от API:", response)
 
 	records, ok := response["answer"].([]interface{})
 	if !ok {
@@ -126,6 +134,14 @@ func (c *RegruClient) makePostRequest(endpoint string, payload map[string]interf
 	var result map[string]interface{}
 	if err := json.Unmarshal(respBody, &result); err != nil {
 		return nil, fmt.Errorf("ошибка обработки JSON: %w", err)
+	}
+
+	// Логирование ответа от API
+	fmt.Println("makePostRequest: Ответ от API:", result)
+
+	// Проверка на успешную аутентификацию
+	if result["result"] == "error" && result["error_code"] == 106 {
+		return nil, errNoAuth
 	}
 
 	if result["result"] != "success" {
