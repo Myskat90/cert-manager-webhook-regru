@@ -42,7 +42,7 @@ func (c *RegruClient) getRecords() error {
 		return errors.New(fmt.Sprintf("response failed with status code: %d and body: %s", res.StatusCode, body))
 	}
 	if err != nil {
-		return fmt.Errorf("failed to ready response")
+		return fmt.Errorf("failed to ready response 1")
 	}
 
 	fmt.Printf("Get TXT success. Response body: %s", body)
